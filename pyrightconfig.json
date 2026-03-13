@@ -1,0 +1,10 @@
+{
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "pythonPath": "C:/Users/eswar/anaconda3/python.exe",
+  "venvPath": "C:/Users/eswar/anaconda3/envs",
+  "extraPaths": [
+    "C:/Users/eswar/anaconda3/Lib/site-packages"
+  ],
+  "typeCheckingMode": "basic"
+}

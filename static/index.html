@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether RAG - Enterprise AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- Variables & Reset --- */
+        :root {
+            --bg-base: #050505;
+            --bg-gradient: radial-gradient(circle at top left, rgba(20, 30, 48, 1) 0%, rgba(5, 5, 5, 1) 100%);
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-highlight: rgba(255, 255, 255, 0.12);
+            --text-primary: #ededed;
+            --text-secondary: #a0a0a0;
+            --accent-glow: rgba(56, 189, 248, 0.2);
+            --accent-color: #38bdf8;
+            --success-color: #10b981;
+            --font-family: 'Inter', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg-base);
+            background-image: var(--bg-gradient);
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        /* --- Layout & Glassmorphism Utilities --- */
+        .app-container {
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* --- Header --- */
+        .top-header {
+            display: flex;
+            align-items: center;
+            padding: 1rem 2rem;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon { color: var(--accent-color); font-size: 1.5rem; }
+        .brand h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: 0.5px; }
+
+        /* --- Document Selector --- */
+        .doc-selector-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+        }
+
+        .pills-container {
+            display: flex;
+            gap: 0.75rem;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .pills-container::-webkit-scrollbar { height: 4px; }
+        .pills-container::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
+
+        .pill {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-family: var(--font-family);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .pill:hover { background: var(--glass-highlight); color: var(--text-primary); }
+        .pill.active {
+            background: rgba(56, 189, 248, 0.1); /* Subtle accent tint */
+            border-color: var(--accent-color);
+            color: var(--accent-color); /* Match accent color */
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+
+        .btn-primary {
+            background: var(--glass-highlight);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background: var(--glass-border); }
+
+        /* --- Workspace & Upload Zone --- */
+        .workspace {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1rem;
+            flex: 1;
+            min-height: 0; 
+        }
+
+        .upload-zone {
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            border: 1px dashed var(--glass-border);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--accent-color);
+            background: var(--accent-glow);
+        }
+
+        .upload-icon { font-size: 2.5rem; margin-bottom: 1rem; color: var(--text-secondary); }
+        .upload-zone h3 { font-size: 1rem; font-weight: 500; margin-bottom: 0.5rem; }
+        .upload-zone p { font-size: 0.8rem; color: var(--text-secondary); }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--glass-border);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem auto;
+        }
+
+        /* --- Chat Interface --- */
+        .chat-interface {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .chat-history::-webkit-scrollbar { width: 6px; }
+        .chat-history::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
+
+        .message {
+            display: flex;
+            gap: 1rem;
+            max-width: 85%;
+            animation: slideUp 0.3s ease forwards;
+        }
+
+        .user-message { align-self: flex-end; flex-direction: row-reverse; }
+        .user-message .message-content {
+            background: var(--glass-highlight);
+            border: 1px solid var(--glass-border);
+        }
+
+        .ai-message { align-self: flex-start; }
+        .ai-message .message-avatar {
+            width: 30px; height: 30px;
+            background: transparent;
+            border: 1px solid var(--accent-color);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--accent-color); font-size: 0.8rem;
+        }
+
+        .message-content {
+            background: transparent;
+            padding: 1rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        /* Citations */
+        .citations {
+            margin-top: 0.75rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .citation-chip {
+            font-size: 0.75rem;
+            color: var(--accent-color);
+            background: var(--accent-glow);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .citation-chip:hover { background: rgba(56, 189, 248, 0.4); }
+
+        /* Input Area */
+        .chat-input-container {
+            padding: 1.5rem;
+            border-top: 1px solid var(--glass-border);
+            position: relative;
+            display: flex;
+            align-items: flex-end;
+            gap: 1rem;
+        }
+
+        textarea {
+            width: 100%;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+            border-radius: 12px;
+            padding: 1rem 3rem 1rem 1rem;
+            font-family: var(--font-family);
+            font-size: 0.95rem;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+            max-height: 150px;
+        }
+
+        textarea::placeholder {
+            color: rgba(255, 255, 255, 0.45); /* Increased contrast for readability */
+        }
+
+        textarea:focus { border-color: var(--accent-color); box-shadow: 0 0 15px var(--accent-glow); } /* Added glow on focus */
+
+        .btn-send {
+            position: absolute;
+            right: 2.2rem;
+            bottom: 2rem;
+            background: var(--accent-color); /* Use prime brand color instead of heavy white */
+            color: var(--bg-base);
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%; /* Circle instead of boxy square */
+            cursor: pointer;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy hover */
+            box-shadow: 0 2px 10px rgba(56, 189, 248, 0.3);
+        }
+        .btn-send:hover { transform: scale(1.1); box-shadow: 0 4px 15px rgba(56, 189, 248, 0.5); }
+        .btn-send:disabled { opacity: 0.3; cursor: not-allowed; transform: scale(1); box-shadow: none; }
+
+        .footer-status {
+            padding: 0 1.5rem 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+        .status-dot.green { background-color: var(--success-color); box-shadow: 0 0 5px var(--success-color); }
+
+        /* --- Animations --- */
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulseGlow {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        .typing-indicator { color: var(--text-secondary); font-style: italic; animation: pulseGlow 1.5s infinite; }
+
+        /* --- Auth Modal --- */
+        #auth-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(20px);
+            z-index: 2000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        .auth-card {
+            width: 100%;
+            max-width: 400px;
+            padding: 3rem;
+            text-align: center;
+        }
+        .auth-card h2 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+        .auth-card p { color: var(--text-secondary); margin-bottom: 2rem; font-size: 0.9rem; }
+        .auth-form { display: flex; flex-direction: column; gap: 1rem; }
+        .auth-input {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--glass-border);
+            color: #fff;
+            padding: 1rem;
+            border-radius: 12px;
+            outline: none;
+            font-family: var(--font-family);
+        }
+        .auth-input:focus { border-color: var(--accent-color); }
+        .auth-btn {
+            background: var(--accent-color);
+            color: var(--bg-base);
+            border: none;
+            padding: 1rem;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .auth-btn:hover { transform: scale(1.02); }
+        .auth-toggle {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .auth-toggle span { color: var(--accent-color); font-weight: 500; }
+
+        .header-user {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .logout-btn {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 1px solid transparent;
+        }
+        .logout-btn:hover { color: var(--text-primary); border-color: var(--text-primary); }
+        .avatar-small {
+            width: 32px; height: 32px;
+            background: var(--glass-highlight);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; border: 1px solid var(--accent-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="glass-panel top-header">
+            <div class="brand">
+                <div class="logo-icon">▲</div>
+                <h1>Aether RAG</h1>
+            </div>
+            <div class="header-user hidden" id="header-user">
+                <span class="logout-btn" onclick="logout()">Logout</span>
+                <div class="avatar-small" id="user-initial">U</div>
+            </div>
+        </header>
+
+        <div id="auth-overlay">
+            <div class="glass-panel auth-card">
+                <div class="logo-icon" style="font-size: 3rem; margin-bottom: 1.5rem;">▲</div>
+                <h2 id="auth-title">Welcome Back</h2>
+                <p id="auth-desc">Enter your credentials to access your RAG.</p>
+                
+                <form class="auth-form" id="auth-form">
+                    <input type="text" class="auth-input" id="auth-user" placeholder="Username" required>
+                    <input type="password" class="auth-input" id="auth-pass" placeholder="Password" required>
+                    <input type="text" class="auth-input hidden" id="auth-name" placeholder="Full Name">
+                    <button type="submit" class="auth-btn" id="auth-submit">Sign In</button>
+                </form>
+
+                <div class="auth-toggle" id="auth-toggle">
+                    Don't have an account? <span>Sign Up</span>
+                </div>
+            </div>
+        </div>
+
+        <section class="glass-panel doc-selector-bar">
+            <div class="pills-container" id="doc-pills">
+                <button class="pill active" data-doc="all">
+                    <span class="icon">⊞</span> All Knowledge Base
+                </button>
+            </div>
+            <button class="btn-primary">+ New Chat</button>
+        </section>
+
+        <main class="workspace">
+            <div class="glass-panel upload-zone" id="drop-zone">
+                <div class="upload-content" id="upload-content">
+                    <div class="upload-icon">📄↓</div>
+                    <h3>Upload New Knowledge</h3>
+                    <p>Drag & drop PDF or TXT files here</p>
+                </div>
+                <div class="upload-progress hidden" id="upload-progress">
+                    <div class="spinner"></div>
+                    <h3 id="upload-status-text">Processing in background...</h3>
+                    <p id="upload-filename">document.pdf</p>
+                </div>
+            </div>
+
+            <div class="glass-panel chat-interface">
+                <div class="chat-history" id="chat-history">
+                    <div class="message ai-message">
+                        <div class="message-avatar">▲</div>
+                        <div class="message-content">
+                            <p>System initialized. Hybrid Vector + BM25 search active. What would you like to query today?</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chat-input-container">
+                    <textarea id="chat-input" placeholder="Type your detailed question... (Shift+Enter for new line)" rows="1"></textarea>
+                    <button class="btn-send" id="btn-send">↑</button>
+                </div>
+                <div class="footer-status">
+                    <span><span class="status-dot green"></span> Hybrid Vector Search: Active</span>
+                    <span><span class="status-dot green"></span> Session Memory: Enabled</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const state = { 
+            selectedDoc: 'all', 
+            chatHistory: [], 
+            uploadedDocs: [],
+            authToken: localStorage.getItem('aether_token'),
+            user: null
+        };
+
+        // --- Auth Logic ---
+        async function checkAuth() {
+            if (!state.authToken) {
+                showAuthModal();
+                return;
+            }
+            try {
+                const res = await fetch('/auth/me', { headers: getHeaders() });
+                if (!res.ok) throw new Error('Unauthorized');
+                state.user = await res.json();
+                hideAuthModal();
+                setupApp(); // Start the main app logic
+            } catch (e) {
+                console.error("Auth check failed:", e);
+                localStorage.removeItem('aether_token');
+                showAuthModal();
+            }
+        }
+
+        function getHeaders() {
+            return { 'Authorization': `Bearer ${state.authToken}` };
+        }
+
+        function showAuthModal() {
+            document.getElementById('auth-overlay').classList.remove('hidden');
+            document.getElementById('header-user').classList.add('hidden');
+        }
+
+        function hideAuthModal() {
+            document.getElementById('auth-overlay').classList.add('hidden');
+            document.getElementById('header-user').classList.remove('hidden');
+            document.getElementById('user-initial').textContent = state.user.username[0].toUpperCase();
+        }
+
+        function logout() {
+            localStorage.removeItem('aether_token');
+            location.reload();
+        }
+
+        // Auth Form Toggling
+        let isSignUp = false;
+        const authToggle = document.getElementById('auth-toggle');
+        const authTitle = document.getElementById('auth-title');
+        const authDesc = document.getElementById('auth-desc');
+        const authName = document.getElementById('auth-name');
+        const authSubmit = document.getElementById('auth-submit');
+        const authForm = document.getElementById('auth-form');
+
+        authToggle.addEventListener('click', () => {
+            isSignUp = !isSignUp;
+            authTitle.textContent = isSignUp ? "Create Account" : "Welcome Back";
+            authDesc.textContent = isSignUp ? "Join Aether to start managing your knowledge." : "Enter your credentials to access your RAG.";
+            authName.classList.toggle('hidden', !isSignUp);
+            authSubmit.textContent = isSignUp ? "Sign Up" : "Sign In";
+            authToggle.innerHTML = isSignUp ? "Already have an account? <span>Sign In</span>" : "Don't have an account? <span>Sign Up</span>";
+        });
+
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('auth-user').value;
+            const password = document.getElementById('auth-pass').value;
+            const fullName = document.getElementById('auth-name').value;
+
+            try {
+                if (isSignUp) {
+                    const res = await fetch('/auth/signup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password, full_name: fullName })
+                    });
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.detail || 'Signup failed');
+                    }
+                }
+
+                // Login
+                const formData = new FormData();
+                formData.set('username', username);
+                formData.set('password', password);
+
+                const res = await fetch('/auth/login', { method: 'POST', body: formData });
+                if (!res.ok) throw new Error('Invalid username or password');
+                
+                const data = await res.json();
+                state.authToken = data.access_token;
+                localStorage.setItem('aether_token', data.access_token);
+                checkAuth();
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        // --- Main App Logic ---
+        function setupApp() {
+            const dropZone = document.getElementById('drop-zone');
+            const uploadContent = document.getElementById('upload-content');
+            const uploadProgress = document.getElementById('upload-progress');
+            const uploadStatusText = document.getElementById('upload-status-text');
+            const uploadFilename = document.getElementById('upload-filename');
+            const docPillsContainer = document.getElementById('doc-pills');
+            const chatInput = document.getElementById('chat-input');
+            const btnSend = document.getElementById('btn-send');
+            const chatHistoryEl = document.getElementById('chat-history');
+
+            // 1. Upload Logic
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(name => {
+                dropZone.addEventListener(name, e => { e.preventDefault(); e.stopPropagation(); });
+            });
+            ['dragenter', 'dragover'].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.add('dragover')));
+            ['dragleave', 'drop'].forEach(name => dropZone.addEventListener(name, () => dropZone.classList.remove('dragover')));
+
+            dropZone.addEventListener('drop', e => { if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]); });
+            dropZone.addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.pdf,.txt';
+                input.onchange = e => uploadFile(e.target.files[0]);
+                input.click();
+            });
+
+            async function uploadFile(file) {
+                uploadContent.classList.add('hidden');
+                uploadProgress.classList.remove('hidden');
+                uploadFilename.textContent = file.name;
+                uploadStatusText.textContent = "Uploading...";
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const res = await fetch('/upload', { method: 'POST', headers: getHeaders(), body: formData });
+                    if (!res.ok) throw new Error('Upload failed');
+                    uploadStatusText.textContent = "Processing vectors...";
+                    pollUploadStatus(file.name);
+                } catch (e) {
+                    uploadStatusText.textContent = "Error: " + e.message;
+                    uploadStatusText.style.color = "red";
+                }
+            }
+
+            async function pollUploadStatus(filename) {
+                let done = false;
+                while (!done) {
+                    const res = await fetch(`/upload/status/${filename}`, { headers: getHeaders() });
+                    const data = await res.json();
+                    if (data.status === 'done') done = true;
+                    else if (data.status === 'error') throw new Error(data.detail);
+                    else await new Promise(r => setTimeout(r, 2000));
+                }
+                uploadStatusText.textContent = "Success!";
+                uploadStatusText.style.color = "var(--success-color)";
+                setTimeout(() => {
+                    uploadContent.classList.remove('hidden');
+                    uploadProgress.classList.add('hidden');
+                    addDocumentPill(filename);
+                }, 1500);
+            }
+
+            function addDocumentPill(filename) {
+                if (state.uploadedDocs.includes(filename)) return;
+                state.uploadedDocs.push(filename);
+                const btn = document.createElement('button');
+                btn.className = 'pill';
+                btn.innerHTML = `<span class="icon">📄</span> ${filename}`;
+                btn.onclick = () => {
+                    document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    state.selectedDoc = filename;
+                };
+                docPillsContainer.appendChild(btn);
+            }
+
+            document.querySelector('.pill[data-doc="all"]').onclick = (e) => {
+                document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                state.selectedDoc = 'all';
+            };
+
+            // 2. Chat Logic
+            chatInput.oninput = function() {
+                this.style.height = 'auto';
+                this.style.height = this.scrollHeight + 'px';
+                btnSend.disabled = !this.value.trim();
+            };
+
+            btnSend.onclick = handleSendMessage;
+            chatInput.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
+
+            async function handleSendMessage() {
+                const text = chatInput.value.trim();
+                if (!text) return;
+
+                appendMessage(text, 'user');
+                state.chatHistory.push({ role: 'user', content: text });
+                chatInput.value = '';
+                chatInput.style.height = 'auto';
+                btnSend.disabled = true;
+
+                const loadingId = appendTypingIndicator();
+
+                try {
+                    const res = await fetch('/ask', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', ...getHeaders() },
+                        body: JSON.stringify({
+                            question: text,
+                            filename: state.selectedDoc === 'all' ? '' : state.selectedDoc,
+                            chat_history: state.chatHistory
+                        })
+                    });
+                    if (!res.ok) throw new Error('Query failed');
+                    const data = await res.json();
+                    document.getElementById(loadingId).remove();
+                    appendMessage(data.answer, 'ai', data.sources);
+                    state.chatHistory.push({ role: 'assistant', content: data.answer });
+                } catch (e) {
+                    document.getElementById(loadingId).remove();
+                    appendMessage("Error: " + e.message, 'ai');
+                }
+            }
+
+            function appendMessage(text, sender, sources = []) {
+                const msg = document.createElement('div');
+                msg.className = `message ${sender}-message`;
+                let content = `<div class="message-content"><p>${text}</p>`;
+                if (sources.length) {
+                    content += `<div class="citations">` + sources.map(s => `<span class="citation-chip">${s}</span>`).join('') + `</div>`;
+                }
+                content += `</div>`;
+                msg.innerHTML = sender === 'ai' ? `<div class="message-avatar">▲</div>${content}` : content;
+                chatHistoryEl.appendChild(msg);
+                chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+            }
+
+            function appendTypingIndicator() {
+                const id = 'typing-' + Date.now();
+                const msg = document.createElement('div');
+                msg.className = 'message ai-message';
+                msg.id = id;
+                msg.innerHTML = `<div class="message-avatar">▲</div><div class="message-content typing-indicator">Thinking...</div>`;
+                chatHistoryEl.appendChild(msg);
+                chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+                return id;
+            }
+        }
+
+        // Start Auth Check
+        document.addEventListener('DOMContentLoaded', checkAuth);
+    </script>

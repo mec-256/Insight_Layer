@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+chromadb
+sentence-transformers
+groq
+python-dotenv
+langchain
+langchain-community
+langchain-huggingface
+langchain-chroma
+langchain-text-splitters
+pypdf
+python-multipart
+rank_bm25
+passlib
+bcrypt
+PyJWT

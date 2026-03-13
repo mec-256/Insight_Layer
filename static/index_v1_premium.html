@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise RAG AI | Advanced Document QA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- Premium Pure CSS: Dark Mode, Glassmorphism, Micro-animations --- */
+        :root {
+            --bg-color: #0d0d0f;
+            --container-bg: rgba(30, 30, 35, 0.7);
+            --card-bg: rgba(45, 45, 52, 0.6);
+            --text-primary: #e0e0e0;
+            --text-secondary: #aaaaaa;
+            --accent-primary: #007aff; /* Apple-style professional blue */
+            --accent-gradient: linear-gradient(135deg, #007aff 0%, #00d2ff 100%);
+            --accent-gradient-hover: linear-gradient(135deg, #00d2ff 0%, #007aff 100%);
+            --success: #34c759;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --font-main: 'Inter', sans-serif;
+            --transition-smooth: all 0.3s cubic-bezier(0.23, 1, 0.320, 1);
+            --transition-fast: all 0.15s ease-out;
+            --shadow-subtle: 0 4px 6px rgba(0,0,0,0.3);
+            --glass-blur: 16px;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(0, 122, 255, 0.1) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(0, 210, 255, 0.08) 0px, transparent 50%);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- Main App Container (Centered, Large Card) --- */
+        #chat-app {
+            width: 90vw;
+            max-width: 1400px;
+            height: 85vh;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            backdrop-filter: blur(var(--glass-blur));
+            box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: var(--transition-smooth);
+            animation: app-fade-in 0.6s ease-out;
+        }
+
+        @keyframes app-fade-in {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* --- Header: Logo, Doc Selector, Upload --- */
+        header {
+            padding: 18px 24px;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-container {
+            font-weight: 700;
+            font-size: 22px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--accent-gradient);
+            border-radius: 10px;
+            position: relative;
+            box-shadow: 0 4px 10px rgba(0, 122, 255, 0.4);
+        }
+        .logo-icon::after {
+            content: 'R';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            color: #fff;
+        }
+
+        /* --- Hand-drawn Design Interpretation: Top-left group for upload --- */
+        .upload-interaction-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        #upload-trigger {
+            width: 50px;
+            height: 50px;
+            background: var(--card-bg);
+            border-radius: 50%;
+            border: 2px dashed rgba(255,255,255,0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: var(--accent-primary);
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            position: relative;
+        }
+        #upload-trigger:hover {
+            border-color: var(--accent-primary);
+            background: rgba(0, 122, 255, 0.1);
+            transform: scale(1.05);
+        }
+
+        #upload-status-indicator {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 20px;
+            height: 20px;
+            background: var(--accent-gradient);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-size: 12px;
+            opacity: 0;
+            transition: var(--transition-smooth);
+        }
+        #upload-status-indicator.show { opacity: 1; }
+        
+        @keyframes pulse-process {
+            0% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 122, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+        }
+        #upload-status-indicator.processing {
+            animation: pulse-process 1.5s infinite;
+        }
+        
+        @keyframes celeb-pop {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 0; }
+        }
+        #upload-celebration {
+            position: absolute;
+            font-size: 40px;
+            color: var(--success);
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition-smooth);
+        }
+        #upload-celebration.show {
+            animation: celeb-pop 0.8s ease-out;
+        }
+
+        .upload-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            letter-spacing: 0.2px;
+        }
+
+        /* --- Header Actions: Doc Selector --- */
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        #doc-selector {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-family: var(--font-main);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+            transition: var(--transition-fast);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        #doc-selector:hover { border-color: rgba(255,255,255,0.3); background: rgba(55, 55, 62, 0.8); }
+        #doc-selector:focus { outline: none; border-color: var(--accent-primary); }
+
+        #chat-window {
+            flex-grow: 1;
+            padding: 40px 30px;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            align-items: center; /* Center the messages column */
+        }
+
+        /* Scrollbar styling */
+        #chat-window::-webkit-scrollbar { width: 6px; }
+        #chat-window::-webkit-scrollbar-track { background: transparent; }
+        #chat-window::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        #chat-window::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* --- Messages --- */
+        .message {
+            width: 100%;
+            max-width: 800px; /* Constrain width for optimal reading */
+            padding: 18px 24px;
+            border-radius: 16px;
+            line-height: 1.7;
+            font-size: 16px; /* Larger, premium typography */
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            animation: msg-fade-up 0.3s ease-out;
+            box-shadow: var(--shadow-subtle);
+        }
+        @keyframes msg-fade-up {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background: var(--accent-gradient);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .ai-message {
+            align-self: flex-start;
+            background: rgba(45, 45, 52, 0.85); /* Slightly darker/more opaque for contrast */
+            color: #ffffff; /* Brighter text for readability */
+            border: 1px solid rgba(255,255,255,0.05);
+            border-bottom-left-radius: 4px;
+            position: relative;
+        }
+        
+        .ai-message::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px; /* Thinner, more elegant indicator */
+            height: 60%;
+            background: var(--accent-gradient);
+            border-radius: 4px;
+        }
+
+        /* --- Citation Chips --- */
+        .source-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .citation-chip {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: var(--transition-fast);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .citation-chip:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border-color: rgba(255,255,255,0.3);
+        }
+        .citation-icon { font-size: 10px; }
+
+        /* --- Skeleton Loader / Typing Indicator --- */
+        .skeleton-loader {
+            align-self: flex-start;
+            width: 120px;
+            height: 40px;
+            background: var(--card-bg);
+            border-radius: 16px;
+            border-bottom-left-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .skeleton-dot {
+            width: 8px;
+            height: 8px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            animation: skeleton-pulse 1s infinite ease-in-out;
+        }
+        .skeleton-dot:nth-child(2) { animation-delay: 0.15s; }
+        .skeleton-dot:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes skeleton-pulse {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        /* --- Chat Input Bar (Glassmorphic) --- */
+        #chat-input-bar {
+            padding: 20px 30px 30px 30px;
+            background: rgba(20, 20, 25, 0.6);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center; /* Center the input area */
+            margin: 0;
+        }
+        
+        .input-container-inner {
+            width: 100%;
+            max-width: 850px; /* Match message column width nicely */
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            position: relative;
+        }
+
+        #user-input {
+            flex-grow: 1;
+            background: rgba(10, 10, 15, 0.8); /* Darker input box for massive contrast */
+            border: 1px solid rgba(255,255,255,0.15); /* Hotter border */
+            color: #ffffff;
+            border-radius: 16px;
+            padding: 16px 22px;
+            font-family: var(--font-main);
+            font-size: 16px;
+            resize: none;
+            min-height: 54px;
+            max-height: 200px;
+            transition: var(--transition-fast);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        #user-input:focus { outline: none; border-color: var(--accent-primary); box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 0 0 4px rgba(0, 122, 255, 0.15); }
+        #user-input::placeholder { color: rgba(255,255,255,0.4); }
+
+        #send-btn {
+            background: var(--accent-gradient);
+            color: #fff;
+            border: none;
+            border-radius: 16px;
+            padding: 0 26px;
+            height: 54px;
+            font-family: var(--font-main);
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #send-btn:hover {
+            background: var(--accent-gradient-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+        }
+        #send-btn:active { transform: translateY(0); box-shadow: none; }
+        #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* --- Drag-and-Drop Overlay --- */
+        #drop-zone-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(8px);
+            border: 4px dashed var(--accent-primary);
+            border-radius: 20px;
+            color: #fff;
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition-smooth);
+        }
+        #drop-zone-overlay.active { opacity: 1; pointer-events: all; }
+
+        /* --- Toast Notification --- */
+        #toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(50px);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition-smooth);
+            z-index: 1001;
+        }
+        #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: all; }
+        #toast.success { border-color: var(--success); }
+        .toast-icon { color: var(--success); }
+
+    </style>
+</head>
+<body>
+
+    <div id="chat-app">
+        
+        <header>
+            <div class="upload-interaction-group">
+                <div id="upload-trigger">
+                    +
+                    <div id="upload-status-indicator"></div>
+                </div>
+                <span class="upload-label">Drag or drop files to background...</span>
+            </div>
+            
+            <div class="logo-container">
+                <div class="logo-icon"></div>
+                <span>E:RAG AI</span>
+            </div>
+
+            <div class="header-actions">
+                <select id="doc-selector">
+                    <option value="">All Knowledge Base</option>
+                    </select>
+            </div>
+        </header>
+
+        <div id="chat-window">
+            <div class="ai-message">
+                Hello! I am your advanced AI research assistant. Upload a document or select an existing one, and ask me anything.
+            </div>
+            </div>
+
+        <div id="chat-input-bar">
+            <div class="input-container-inner">
+                <textarea id="user-input" placeholder="Type your professional query..."></textarea>
+                <button id="send-btn">
+                    <span>Send</span>
+                    <span>&#11157;</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="drop-zone-overlay">
+        Drop PDF or TXT files to process...
+    </div>
+
+    <div id="toast">
+        <span class="toast-icon">&#10003;</span>
+        <span id="toast-message">File uploaded successfully!</span>
+    </div>
+
+    <div id="upload-celebration">&#10004;</div>
+
+    <script>
+        // --- Core Application Logic (JS/Vanilla) ---
+
+        // State & Config
+        const CONFIG = {
+            baseApi: '', // Replace with your FastAPI URL if needed, e.g., 'http://127.0.0.1:8000'
+            pollInterval: 2000 // Polling for upload status
+        };
+
+        const state = {
+            chatHistory: [], // User and AI messages for memory
+            isLoadingAI: false,
+            uploadedDocuments: [], // Names of docs for the selector
+            currentlyUploading: null // Holds { filename: "...", interval: null }
+        };
+
+        // DOM Elements
+        const DOM = {
+            app: document.getElementById('chat-app'),
+            uploadTrigger: document.getElementById('upload-trigger'),
+            uploadStatusIndicator: document.getElementById('upload-status-indicator'),
+            uploadCelebration: document.getElementById('upload-celebration'),
+            dropZoneOverlay: document.getElementById('drop-zone-overlay'),
+            docSelector: document.getElementById('doc-selector'),
+            chatWindow: document.getElementById('chat-window'),
+            userInput: document.getElementById('user-input'),
+            sendBtn: document.getElementById('send-btn'),
+            toast: document.getElementById('toast'),
+            toastMessage: document.getElementById('toast-message')
+        };
+
+        // Initialization
+        function init() {
+            // Document selector already has "All Knowledge Base"
+            setupEventListeners();
+        }
+
+        // --- Core Functions ---
+
+        // 1. Send Message Flow
+        async function sendMessage() {
+            const question = DOM.userInput.value.trim();
+            if (!question || state.isLoadingAI) return;
+
+            // Update UI/State
+            DOM.userInput.value = '';
+            resetTextAreaHeight();
+            state.isLoadingAI = true;
+            DOM.sendBtn.disabled = true;
+
+            // Display User Message
+            addMessageToDOM('user', question);
+
+            // Fetch AI Response
+            const selectedFile = DOM.docSelector.value;
+            const payload = {
+                question: question,
+                filename: selectedFile, // Empty string for 'All KB'
+                chat_history: state.chatHistory
+            };
+
+            try {
+                // Pre-add skeleton loader
+                const skeletonId = addSkeletonLoader();
+
+                const response = await fetch(`${CONFIG.baseApi}/ask`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error('Network response was not ok.');
+
+                const data = await response.json();
+                
+                // Remove skeleton and add real message
+                removeSkeletonLoader(skeletonId);
+                addMessageToDOM('ai', data.answer, data.sources);
+
+                // Update memory
+                state.chatHistory.push(
+                    { role: "user", content: question },
+                    { role: "assistant", content: data.answer }
+                );
+
+            } catch (error) {
+                console.error('Error asking AI:', error);
+                addMessageToDOM('ai', 'My apologies, I encountered a connection issue. Please try again.');
+            } finally {
+                state.isLoadingAI = false;
+                DOM.sendBtn.disabled = false;
+            }
+        }
+
+        // 2. Upload Flow (Unified: Drag or Click)
+        async function handleFileUpload(files) {
+            const file = files[0]; // Process one file at a time
+            if (!file || (!file.name.endsWith('.pdf') && !file.name.endsWith('.txt'))) {
+                showToast("Invalid file type. Please upload a PDF or TXT.", "error");
+                return;
+            }
+
+            // Immediately show processing status on trigger button
+            setUploadStatus('processing');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`${CONFIG.baseApi}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Upload failed.');
+
+                const data = await response.json(); // Expected: { message: "...", status: "processing" }
+                
+                // Initiate polling for status
+                pollUploadStatus(file.name);
+
+            } catch (error) {
+                console.error('Upload Error:', error);
+                showToast("Failed to initiate upload. Please retry.", "error");
+                setUploadStatus('idle');
+            }
+        }
+
+        // 3. Polling Status Flow
+        function pollUploadStatus(filename) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${CONFIG.baseApi}/upload/status/${filename}`);
+                    if (!response.ok) throw new Error('Status check failed.');
+
+                    const data = await response.json(); // Expected: { filename: "...", status: "done" or "processing" }
+
+                    if (data.status === 'done') {
+                        // Success!
+                        clearInterval(interval);
+                        celebrateAndAddDoc(filename);
+                    }
+                } catch (error) {
+                    console.error('Polling Error:', error);
+                    // Decide whether to retry or fail. For now, stop.
+                    clearInterval(interval);
+                    showToast("Failed to check status for " + filename, "error");
+                    setUploadStatus('idle');
+                }
+            }, CONFIG.pollInterval);
+
+            // Store interval reference for state if needed
+            state.currentlyUploading = { filename, interval };
+        }
+
+        // 4. Celebration Flow (When async is done)
+        function celebrateAndAddDoc(filename) {
+            setUploadStatus('idle'); // Back to '+'
+
+            // 1. Toast
+            showToast(`${filename} processed successfully!`);
+
+            // 2. Button celebration animation (pulsing green check)
+            triggerButtonCelebration();
+
+            // 3. Add to Document List state and UI
+            if (!state.uploadedDocuments.includes(filename)) {
+                state.uploadedDocuments.push(filename);
+                addDocToSelector(filename);
+            }
+        }
+
+        // --- Helper/UI Functions ---
+
+        function addMessageToDOM(sender, content, sources = []) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}-message`;
+            msgDiv.textContent = content;
+
+            if (sources.length > 0) {
+                const chipsContainer = document.createElement('div');
+                chipsContainer.className = 'source-chips';
+                sources.forEach(source => {
+                    const chip = document.createElement('div');
+                    chip.className = 'citation-chip';
+                    chip.innerHTML = `<span class="citation-icon">&#128203;</span> ${source}`;
+                    chip.onclick = () => showToast(`Opening source: ${source}`); // Handle citation click
+                    chipsContainer.appendChild(chip);
+                });
+                msgDiv.appendChild(chipsContainer);
+            }
+
+            DOM.chatWindow.appendChild(msgDiv);
+            scrollToBottom();
+        }
+
+        function addSkeletonLoader() {
+            const loaderDiv = document.createElement('div');
+            const id = 'skeleton-' + Date.now();
+            loaderDiv.id = id;
+            loaderDiv.className = 'skeleton-loader';
+            loaderDiv.innerHTML = '<div class="skeleton-dot"></div><div class="skeleton-dot"></div><div class="skeleton-dot"></div>';
+            DOM.chatWindow.appendChild(loaderDiv);
+            scrollToBottom();
+            return id;
+        }
+
+        function removeSkeletonLoader(id) {
+            const loader = document.getElementById(id);
+            if (loader) loader.remove();
+        }
+
+        function scrollToBottom() { DOM.chatWindow.scrollTop = DOM.chatWindow.scrollHeight; }
+
+        function showToast(message, type = 'success') {
+            DOM.toastMessage.textContent = message;
+            DOM.toast.className = `show ${type}`;
+            setTimeout(() => { DOM.toast.classList.remove('show'); }, 4000);
+        }
+
+        function setUploadStatus(status) {
+            // status: 'idle', 'processing'
+            if (status === 'processing') {
+                DOM.uploadStatusIndicator.textContent = '...';
+                DOM.uploadStatusIndicator.className = 'show processing';
+            } else {
+                DOM.uploadStatusIndicator.className = ''; // Hide
+            }
+        }
+
+        function triggerButtonCelebration() {
+            // Visual feedback on the trigger button itself
+            DOM.uploadCelebration.classList.add('show');
+            setTimeout(() => DOM.uploadCelebration.classList.remove('show'), 1500);
+        }
+
+        function addDocToSelector(filename) {
+            const option = document.createElement('option');
+            option.value = filename;
+            option.textContent = filename;
+            DOM.docSelector.appendChild(option);
+            DOM.docSelector.value = filename; // Optional: Auto-select newly added
+        }
+
+        // --- DOM Event Listeners ---
+
+        function setupEventListeners() {
+            // 1. Textarea Auto-resize
+            DOM.userInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight - 20) + 'px';
+            });
+            function resetTextAreaHeight() { DOM.userInput.style.height = '48px'; }
+
+            // 2. Send Button and Enter Key
+            DOM.sendBtn.addEventListener('click', sendMessage);
+            DOM.userInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+
+            // 3. Document Trigger Click
+            DOM.uploadTrigger.addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.pdf, .txt';
+                input.onchange = (e) => handleFileUpload(e.target.files);
+                input.click();
+            });
+
+            // 4. Global Drag and Drop handlers
+            const appBody = document.body;
+
+            appBody.addEventListener('dragenter', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                DOM.dropZoneOverlay.classList.add('active');
+            });
+
+            appBody.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Check if leaving to children of overlay
+                if (!e.relatedTarget || !DOM.dropZoneOverlay.contains(e.relatedTarget)) {
+                    DOM.dropZoneOverlay.classList.remove('active');
+                }
+            });
+
+            appBody.addEventListener('dragover', (e) => {
+                e.preventDefault(); e.stopPropagation(); // Required for drop
+            });
+
+            appBody.addEventListener('drop', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                DOM.dropZoneOverlay.classList.remove('active');
+                handleFileUpload(e.dataTransfer.files);
+            });
+        }
+
+        // Start everything
+        init();
+
+    </script>
+</body>
+</html>
