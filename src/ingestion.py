@@ -26,13 +26,18 @@ def split_documents(documents):
     # Advanced Semantic Chunking
     # Prioritizes splitting by double newline (paragraphs), 
     # then single newline, then periods (sentences), then spaces (words).
-    splitter = RecursiveCharacterTextSplitter(
+    for doc in documents:
+        # Optimize metadata for cloud storage
+        if "source" in doc.metadata:
+            doc.metadata["source"] = os.path.basename(doc.metadata["source"])
+    
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         length_function=len,
         separators=["\n\n", "\n", "(?<=\. )", " ", ""]
     )
-    chunks = splitter.split_documents(documents)
+    chunks = text_splitter.split_documents(documents)
     
     for i, chunk in enumerate(chunks):
         chunk.metadata["chunk_id"]=f"chunk_{i}"
@@ -44,11 +49,16 @@ def save_to_supabase(chunks):
     print("Initializing embedding model...")
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
+    # Fix for SQLAlchemy/PGVector: postgres:// -> postgresql://
+    conn_str = DATABASE_URL
+    if conn_str and conn_str.startswith("postgres://"):
+        conn_str = conn_str.replace("postgres://", "postgresql://", 1)
+
     print("Saving to Supabase (pgvector)...")
     
     # PGVector will create the tables automatically
     vector_store = PGVector(
-        connection=DATABASE_URL,
+        connection=conn_str,
         embeddings=embeddings,
         collection_name="insight_layer_docs",
         use_jsonb=True,

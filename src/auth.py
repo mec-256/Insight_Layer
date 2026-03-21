@@ -10,9 +10,13 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
 # Constants
-SECRET_KEY = os.getenv("SECRET_KEY", "INSIGHT_LAYER_DEV_SECRET")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    # Use a warning for development, but in a real production app we'd raise an error
+    SECRET_KEY = "INSIGHT_LAYER_DEV_SECRET"
+    print("⚠️ WARNING: SECRET_KEY not found in environment. Using insecure default for development.")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 # 1 hour for better security
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -106,3 +110,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 # Initialize the db on import
 init_db()
+
+# Security Check: Ensure SECRET_KEY is not the default in production environments
+if SECRET_KEY == "INSIGHT_LAYER_DEV_SECRET":
+    print("⚠️ WARNING: Using default development SECRET_KEY. Please set a strong SECRET_KEY in your .env for production.")

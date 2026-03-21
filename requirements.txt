@@ -18,3 +18,4 @@ PyJWT
 psycopg2-binary
 supabase
 langchain-postgres
+slowapi

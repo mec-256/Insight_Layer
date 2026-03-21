@@ -1,12 +1,17 @@
 import sys
 import os
 import shutil
+import re
 from supabase import create_client, Client
 # Ensure absolute imports work from src module
 sys.path.append(os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -33,14 +38,31 @@ bm25 = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db, bm25
-    print("Loading ChromaDB and embedding model...")
+    # Ensure data directory exists for temporary processing
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
+    print("Loading Cloud Vector DB (pgvector)...")
     db = load_db()
     bm25 = load_bm25_retriever(db)
     print("Ready!")
     yield
     print("Shutting down.")
 
+# --- Rate Limiting ---
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# --- CORS Middleware ---
+# In production, replace ["*"] with your actual frontend domain
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Serve frontend static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -72,17 +94,41 @@ class UserSignup(BaseModel):
 # --- Auth Endpoints ---
 
 @app.post("/auth/signup")
-async def signup(user: UserSignup):
+@limiter.limit("5/minute")
+async def signup(request: Request, user: UserSignup):
     success = auth.create_user(user.username, user.password, user.full_name)
     if not success:
         raise HTTPException(status_code=400, detail="Username already exists")
     return {"message": "User created successfully"}
 
 @app.post("/auth/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+@limiter.limit("10/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     user = auth.get_user(form_data.username)
     if not user or not auth.verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
+    
+    access_token = auth.create_access_token(data={"sub": user["username"]})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/supabase-login")
+async def supabase_login(data: dict):
+    """
+    Experimental: Endpoint to handle logins from 3rd party providers (Google/GitHub) 
+    after they are verified by Supabase on the frontend.
+    """
+    supabase_uid = data.get("uid")
+    email = data.get("email")
+    if not supabase_uid or not email:
+        raise HTTPException(status_code=400, detail="Invalid Supabase user data")
+    
+    # Check if user exists, if not create them
+    username = email.split('@')[0]
+    user = auth.get_user(username)
+    if not user:
+        # Create a placeholder user for 3rd party auth
+        auth.create_user(username, os.urandom(16).hex(), email)
+        user = auth.get_user(username)
     
     access_token = auth.create_access_token(data={"sub": user["username"]})
     return {"access_token": access_token, "token_type": "bearer"}
@@ -104,7 +150,7 @@ async def ask(request: QuestionRequest, current_user: dict = Depends(auth.get_cu
     formatted_sources = set()
     for doc in results:
         source = doc.metadata.get("source", "unknown")
-        filename = source.split('\\')[-1].split('/')[-1]
+        filename = os.path.basename(source) # Cross-platform safe
         page = doc.metadata.get("page")
         if page is not None:
             formatted_sources.add(f"{filename} (Page {int(page) + 1})")
@@ -178,6 +224,9 @@ async def upload_file(
     
     # Validate file type
     filename = file.filename
+    # Sanitize filename: remove any path traversal characters or weird symbols
+    filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    
     if not (filename.endswith(".pdf") or filename.endswith(".txt")):
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported.")
 

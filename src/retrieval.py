@@ -10,6 +10,10 @@ from config import DATABASE_URL, EMBEDDING_MODEL_NAME, RERANKER_MODEL_NAME, TOP_
 print("Loading Cross-Encoder re-ranker...")
 cross_encoder = CrossEncoder(RERANKER_MODEL_NAME)
 
+# Fix for SQLAlchemy/PGVector: postgres:// -> postgresql://
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 def load_db():
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     vector_store = PGVector(
@@ -21,20 +25,7 @@ def load_db():
     return vector_store
 
 def load_bm25_retriever(db):
-    """Initializes a BM25 retriever from the existing ChromaDB documents."""
-    try:
-        # For PGVector, we need a different way to get all docs if we want BM25
-        # However, for hybrid search, we can use PGVector's own filtering
-        # Since BM25 is local-memory based in this implementation, we can still use it
-        # by fetching all documents from the vector store.
-        # Note: In a large system, this would be inefficient.
-        
-        # PGVector doesn't have a simple .get() that returns all docs like Chroma.
-        # We'll use a similarity search with a dummy query or just skip BM25 for now
-        # to focus on the cloud transition.
-        return None
-    except Exception as e:
-        print("Error loading BM25:", e)
+    """BM25 is currently disabled in cloud mode to maintain statelessness and speed."""
     return None
 
 def retrieve_context(db, bm25_retriever, question, user_id: int, filename_filter=None):
@@ -42,19 +33,14 @@ def retrieve_context(db, bm25_retriever, question, user_id: int, filename_filter
     fetch_k = TOP_K * 5 # Fetch 15 candidates
     
     # 1. Vector Search
-    base_filter = {"user_id": user_id}
+    filter_dict = {"user_id": user_id}
     
     if filename_filter:
-        # Combine user_id and filename filters
-        filter_dict = {
-            "$and": [
-                base_filter,
-                {"source": {"$in": [f"data\\{filename_filter}", f"data/{filename_filter}"]}}
-            ]
-        }
-        vector_results = db.similarity_search(question, k=fetch_k, filter=filter_dict)
-    else:
-        vector_results = db.similarity_search(question, k=fetch_k, filter=base_filter)
+        # For PGVector, simple dictionary filters work best
+        # Note: source should match the value saved in metadata
+        filter_dict["source"] = filename_filter
+        
+    vector_results = db.similarity_search(question, k=fetch_k, filter=filter_dict)
         
     # 2. Keyword Search (BM25)
     keyword_results = []
