@@ -2,9 +2,9 @@ import os
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_postgres.vectorstores import PGVector
 
-from config import DATA_DIR, CHROMA_PATH, EMBEDDING_MODEL_NAME
+from config import DATA_DIR, EMBEDDING_MODEL_NAME, DATABASE_URL
 
 def load_documents():
     print(f"Loading documents from {DATA_DIR}...")
@@ -40,27 +40,32 @@ def split_documents(documents):
     print(f"Split into {len(chunks)} semantically-aware chunks.")
     return chunks
     
-def save_to_chroma(chunks):
-    print("initializing embedding model...")
+def save_to_supabase(chunks):
+    print("Initializing embedding model...")
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
-    print("saving to chroma")
-    db = Chroma.from_documents(
-        chunks,
-        embeddings,
-        persist_directory=CHROMA_PATH 
-        )    
-   
-    print(f"Saved {len(chunks)} chunks to {CHROMA_PATH}.")
+    print("Saving to Supabase (pgvector)...")
+    
+    # PGVector will create the tables automatically
+    vector_store = PGVector(
+        connection=DATABASE_URL,
+        embeddings=embeddings,
+        collection_name="insight_layer_docs",
+        use_jsonb=True,
+    )
+    
+    vector_store.add_documents(chunks)
+    print(f"Saved {len(chunks)} chunks to Supabase cloud.")
 
 def main():
+    # This main() is for local testing/bulk ingestion if needed
     docs=load_documents()
     if not docs:
-         print(f"No documents found to ingest! Please add PDFs or TXT files to '{DATA_DIR}'.")
+         print(f"No documents found to ingest locally.")
          return 
     
     chunks = split_documents(docs)
-    save_to_chroma(chunks)
+    save_to_supabase(chunks)
     
 if __name__ == "__main__":
     main()

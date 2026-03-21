@@ -1,5 +1,6 @@
 import os
-import sqlite3
+import psycopg2
+from psycopg2 import extras
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional
@@ -9,54 +10,63 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
 # Constants
-SECRET_KEY = os.getenv("SECRET_KEY", "DEVELOPMENT_SECRET_KEY_REPLACE_ME")
+SECRET_KEY = os.getenv("SECRET_KEY", "INSIGHT_LAYER_DEV_SECRET")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# Database Path
-DB_PATH = "users.db"
+# Database URL
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- DB Utilities ---
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    if not DATABASE_URL:
+        print("Warning: DATABASE_URL not set. Skipping DB init.")
+        return
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
             full_name TEXT
         )
     """)
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_user(username: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, username, hashed_password, full_name FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
+    if not DATABASE_URL:
+        return None
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor.execute("SELECT id, username, hashed_password, full_name FROM users WHERE username = %s", (username,))
+    user = cursor.fetchone()
+    cursor.close()
     conn.close()
-    if row:
-        return {"id": row[0], "username": row[1], "hashed_password": row[2], "full_name": row[3]}
-    return None
+    return user
 
 def create_user(username: str, password: str, full_name: Optional[str] = None):
+    if not DATABASE_URL:
+        return False
     hashed_password = pwd_context.hash(password)
-    conn = sqlite3.connect(DB_PATH)
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO users (username, hashed_password, full_name) VALUES (?, ?, ?)", 
+        cursor.execute("INSERT INTO users (username, hashed_password, full_name) VALUES (%s, %s, %s)", 
                        (username, hashed_password, full_name))
         conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        conn.rollback()
         return False
     finally:
+        cursor.close()
         conn.close()
 
 # --- Auth Utilities ---

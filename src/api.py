@@ -1,6 +1,7 @@
 import sys
 import os
 import shutil
+from supabase import create_client, Client
 # Ensure absolute imports work from src module
 sys.path.append(os.path.dirname(__file__))
 
@@ -20,6 +21,10 @@ from generation import build_prompt, ask_groq
 
 import auth
 from fastapi.security import OAuth2PasswordRequestForm
+from config import SUPABASE_URL, SUPABASE_KEY
+
+# --- Supabase Client ---
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Preload DB once at startup ---
 db = None
@@ -111,16 +116,24 @@ async def ask(request: QuestionRequest, current_user: dict = Depends(auth.get_cu
 # --- Upload status tracking ---
 upload_status = {}
 
-def process_document(filename: str, save_path: str, user_id: int):
+def process_document(filename: str, user_id: int):
     global db, bm25
     print(f"\n--- BACKGROUND TASK: Started processing '{filename}' ---")
     try:
-        # Load with the right loader
-        print(f"1/4. Loading file '{filename}' from disk...")
+        # Download from Supabase Storage to a temporary local file for processing
+        print(f"1/4. Downloading file '{filename}' from Supabase Storage...")
+        res = supabase.storage.from_("documents").download(f"{user_id}/{filename}")
+        
+        # Save to a temporary path for the loaders to read
+        temp_path = os.path.join(DATA_DIR, f"temp_{filename}")
+        with open(temp_path, "wb") as f:
+            f.write(res)
+
+        print(f"     -> Loading file with right loader...")
         if filename.endswith(".pdf"):
-            loader = PyPDFLoader(save_path)
+            loader = PyPDFLoader(temp_path)
         else:
-            loader = TextLoader(save_path, autodetect_encoding=True)
+            loader = TextLoader(temp_path, autodetect_encoding=True)
         documents = loader.load()
         print(f"     -> Loaded {len(documents)} pages/documents.")
 
@@ -133,14 +146,18 @@ def process_document(filename: str, save_path: str, user_id: int):
         for chunk in chunks:
             chunk.metadata["user_id"] = user_id
 
-        print(f"3/4. Creating Vector Embeddings & saving to ChromaDB (This may take minutes for large books)...")
+        print(f"3/4. Creating Vector Embeddings & saving to Supabase (pgvector)...")
         db.add_documents(chunks)
-        print(f"     -> Successfully saved to ChromaDB.")
+        print(f"     -> Successfully saved to cloud database.")
         
         # Reload BM25 to include new documents
         print(f"4/4. Reloading Keyword Search (BM25) index...")
         bm25 = load_bm25_retriever(db)
         
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
         upload_status[filename] = {
             "status": "done", 
             "chunks_added": len(chunks),
@@ -164,19 +181,26 @@ async def upload_file(
     if not (filename.endswith(".pdf") or filename.endswith(".txt")):
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported.")
 
-    # Save to data/ folder immediately
-    save_path = os.path.join(DATA_DIR, filename)
-    with open(save_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # Upload to Supabase Storage immediately
+    # We use user-specific folders: documents/{user_id}/{filename}
+    try:
+        file_content = await file.read()
+        supabase.storage.from_("documents").upload(
+            path=f"{current_user['id']}/{filename}",
+            file=file_content,
+            file_options={"upsert": "true"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Draft upload failed: {str(e)}")
         
     # Mark as processing
     upload_status[filename] = {"status": "processing"}
 
     # Queue background task
-    background_tasks.add_task(process_document, filename, save_path, current_user["id"])
+    background_tasks.add_task(process_document, filename, current_user["id"])
 
     return {
-        "message": f"⏳ '{filename}' is being processed in the background.",
+        "message": f"⏳ '{filename}' is being uploaded to cloud and processed.",
         "status": "processing"
     }
 
