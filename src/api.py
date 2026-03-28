@@ -190,23 +190,38 @@ async def ask(
     request: QuestionRequest, current_user: dict = Depends(auth.get_current_user)
 ):
     """Receives a question and returns an answer strictly from the specified user's documents."""
+
+    print(f"Received question: {request.question[:100]}")
+
     if db is None:
         raise HTTPException(
             status_code=503,
             detail="Vector database not configured. Please contact support.",
         )
 
-    if not request.question or not request.question.strip():
+    question = request.question.strip()
+    if not question:
         raise HTTPException(status_code=400, detail="Please provide a text question.")
+
+    # Reject if question looks like an image filename
+    lower_q = question.lower()
+    if any(
+        lower_q.endswith(ext)
+        for ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"]
+    ):
+        return AnswerResponse(
+            answer="I can only process text questions, not images. Please type your question.",
+            sources=[],
+        )
 
     results = retrieve_context(
         db,
         bm25,
-        request.question,
+        question,
         user_id=current_user["id"],
         filename_filter=request.filename,
     )
-    prompt = build_prompt(request.question, results, chat_history=request.chat_history)
+    prompt = build_prompt(question, results, chat_history=request.chat_history)
     try:
         answer = ask_groq(prompt)
     except Exception as e:
