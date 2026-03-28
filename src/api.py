@@ -3,11 +3,19 @@ import os
 import shutil
 import re
 from supabase import create_client, Client
-# Ensure absolute imports work from src module
-sys.path.append(os.path.dirname(__file__))
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    HTTPException,
+    BackgroundTasks,
+    Depends,
+    Request,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -19,34 +27,51 @@ from typing import Optional
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 
-from config import DATA_DIR
+from config import DATA_DIR, SUPABASE_URL, SUPABASE_KEY, DATABASE_URL
 from ingestion import split_documents
 from retrieval import load_db, load_bm25_retriever, retrieve_context
 from generation import build_prompt, ask_groq
 
 import auth
 from fastapi.security import OAuth2PasswordRequestForm
-from config import SUPABASE_URL, SUPABASE_KEY
 
-# --- Supabase Client ---
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# --- Supabase Client (lazy initialization) ---
+supabase: Client = None
+
+
+def get_supabase():
+    global supabase
+    if supabase is None:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return supabase
+
 
 # --- Preload DB once at startup ---
 db = None
 bm25 = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db, bm25
-    # Ensure data directory exists for temporary processing
     os.makedirs(DATA_DIR, exist_ok=True)
-    
-    print("Loading Cloud Vector DB (pgvector)...")
-    db = load_db()
-    bm25 = load_bm25_retriever(db)
-    print("Ready!")
+
+    if not SUPABASE_URL or not DATABASE_URL:
+        print("WARNING: Supabase/Database not configured. Some features may not work.")
+    else:
+        print("Loading Cloud Vector DB (pgvector)...")
+        try:
+            db = load_db()
+            bm25 = load_bm25_retriever(db)
+            print("Ready!")
+        except Exception as e:
+            print(f"WARNING: Failed to load vector DB: {e}")
+            db = None
+            bm25 = None
+
     yield
     print("Shutting down.")
+
 
 # --- Rate Limiting ---
 limiter = Limiter(key_func=get_remote_address)
@@ -64,34 +89,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Serve frontend static files (use absolute path)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
 
 # --- Pydantic models ---
+
 
 class Message(BaseModel):
     role: str
     content: str
+
 
 class QuestionRequest(BaseModel):
     question: str
     filename: Optional[str] = None
     chat_history: list[Message] = []
 
+
 class AnswerResponse(BaseModel):
     answer: str
     sources: list[str]
+
 
 class UserSignup(BaseModel):
     username: str
     password: str
     full_name: Optional[str] = None
 
+
 # --- Auth Endpoints ---
+
 
 @app.post("/auth/signup")
 @limiter.limit("5/minute")
@@ -101,66 +136,100 @@ async def signup(request: Request, user: UserSignup):
         raise HTTPException(status_code=400, detail="Username already exists")
     return {"message": "User created successfully"}
 
+
 @app.post("/auth/login")
 @limiter.limit("10/minute")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     user = auth.get_user(form_data.username)
-    if not user or not auth.verify_password(form_data.password, user["hashed_password"]):
+    if not user or not auth.verify_password(
+        form_data.password, user["hashed_password"]
+    ):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
-    
+
     access_token = auth.create_access_token(data={"sub": user["username"]})
     return {"access_token": access_token, "token_type": "bearer"}
+
 
 @app.post("/auth/supabase-login")
 async def supabase_login(data: dict):
     """
-    Experimental: Endpoint to handle logins from 3rd party providers (Google/GitHub) 
+    Experimental: Endpoint to handle logins from 3rd party providers (Google/GitHub)
     after they are verified by Supabase on the frontend.
     """
     supabase_uid = data.get("uid")
     email = data.get("email")
     if not supabase_uid or not email:
         raise HTTPException(status_code=400, detail="Invalid Supabase user data")
-    
+
     # Check if user exists, if not create them
-    username = email.split('@')[0]
+    username = email.split("@")[0]
     user = auth.get_user(username)
     if not user:
         # Create a placeholder user for 3rd party auth
         auth.create_user(username, os.urandom(16).hex(), email)
         user = auth.get_user(username)
-    
+
     access_token = auth.create_access_token(data={"sub": user["username"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 @app.get("/auth/me")
 async def read_users_me(current_user: dict = Depends(auth.get_current_user)):
-    return {"id": current_user["id"], "username": current_user["username"], "full_name": current_user["full_name"]}
+    return {
+        "id": current_user["id"],
+        "username": current_user["username"],
+        "full_name": current_user["full_name"],
+    }
+
 
 # --- Ask endpoint ---
 
+
 @app.post("/ask", response_model=AnswerResponse)
-async def ask(request: QuestionRequest, current_user: dict = Depends(auth.get_current_user)):
+async def ask(
+    request: QuestionRequest, current_user: dict = Depends(auth.get_current_user)
+):
     """Receives a question and returns an answer strictly from the specified user's documents."""
-    results = retrieve_context(db, bm25, request.question, user_id=current_user["id"], filename_filter=request.filename)
+    if db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Vector database not configured. Please contact support.",
+        )
+
+    if not request.question or not request.question.strip():
+        raise HTTPException(status_code=400, detail="Please provide a text question.")
+
+    results = retrieve_context(
+        db,
+        bm25,
+        request.question,
+        user_id=current_user["id"],
+        filename_filter=request.filename,
+    )
     prompt = build_prompt(request.question, results, chat_history=request.chat_history)
-    answer = ask_groq(prompt)
-    
+    try:
+        answer = ask_groq(prompt)
+    except Exception as e:
+        # Return friendly error instead of crashing
+        return AnswerResponse(answer=f"Error: {str(e)}", sources=[])
+
     # Format sources for the frontend UI chips
     formatted_sources = set()
     for doc in results:
         source = doc.metadata.get("source", "unknown")
-        filename = os.path.basename(source) # Cross-platform safe
+        filename = os.path.basename(source)  # Cross-platform safe
         page = doc.metadata.get("page")
         if page is not None:
             formatted_sources.add(f"{filename} (Page {int(page) + 1})")
         else:
             formatted_sources.add(filename)
-            
+
     return AnswerResponse(answer=answer, sources=list(formatted_sources))
+
 
 # --- Upload status tracking ---
 upload_status = {}
+
 
 def process_document(filename: str, user_id: int):
     global db, bm25
@@ -168,8 +237,10 @@ def process_document(filename: str, user_id: int):
     try:
         # Download from Supabase Storage to a temporary local file for processing
         print(f"1/4. Downloading file '{filename}' from Supabase Storage...")
-        res = supabase.storage.from_("documents").download(f"{user_id}/{filename}")
-        
+        res = (
+            get_supabase().storage.from_("documents").download(f"{user_id}/{filename}")
+        )
+
         # Save to a temporary path for the loaders to read
         temp_path = os.path.join(DATA_DIR, f"temp_{filename}")
         with open(temp_path, "wb") as f:
@@ -187,61 +258,68 @@ def process_document(filename: str, user_id: int):
         print(f"2/4. Splitting document into chunks...")
         chunks = split_documents(documents)
         print(f"     -> Created {len(chunks)} chunks.")
-        
+
         # Add user_id to metadata for isolation
         for chunk in chunks:
             chunk.metadata["user_id"] = user_id
 
         print(f"3/4. Creating Vector Embeddings & saving to Supabase (pgvector)...")
+        if db is None:
+            raise Exception(
+                "Database not initialized. Please check DATABASE_URL configuration."
+            )
         db.add_documents(chunks)
         print(f"     -> Successfully saved to cloud database.")
-        
+
         # Reload BM25 to include new documents
         print(f"4/4. Reloading Keyword Search (BM25) index...")
         bm25 = load_bm25_retriever(db)
-        
+
         # Clean up temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
         upload_status[filename] = {
-            "status": "done", 
+            "status": "done",
             "chunks_added": len(chunks),
-            "message": f"✅ '{filename}' uploaded and added to knowledge base."
+            "message": f"✅ '{filename}' uploaded and added to knowledge base.",
         }
         print(f"--- BACKGROUND TASK: Finished processing '{filename}' ! ---\n")
     except Exception as e:
         print(f"\n--- BACKGROUND TASK: Error processing '{filename}': {str(e)} ---\n")
         upload_status[filename] = {"status": "error", "detail": str(e)}
 
+
 @app.post("/upload")
 async def upload_file(
-    background_tasks: BackgroundTasks, 
-    file: UploadFile = File(...), 
-    current_user: dict = Depends(auth.get_current_user)
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(auth.get_current_user),
 ):
     """Upload a PDF or TXT file and queue it for async processing."""
-    
+
     # Validate file type
     filename = file.filename
     # Sanitize filename: remove any path traversal characters or weird symbols
-    filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
-    
+    filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+
     if not (filename.endswith(".pdf") or filename.endswith(".txt")):
-        raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported.")
+        raise HTTPException(
+            status_code=400, detail="Only PDF and TXT files are supported."
+        )
 
     # Upload to Supabase Storage immediately
     # We use user-specific folders: documents/{user_id}/{filename}
     try:
         file_content = await file.read()
-        supabase.storage.from_("documents").upload(
+        get_supabase().storage.from_("documents").upload(
             path=f"{current_user['id']}/{filename}",
             file=file_content,
-            file_options={"upsert": "true"}
+            file_options={"upsert": "true"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Draft upload failed: {str(e)}")
-        
+
     # Mark as processing
     upload_status[filename] = {"status": "processing"}
 
@@ -250,11 +328,14 @@ async def upload_file(
 
     return {
         "message": f"⏳ '{filename}' is being uploaded to cloud and processed.",
-        "status": "processing"
+        "status": "processing",
     }
 
+
 @app.get("/upload/status/{filename}")
-async def get_upload_status(filename: str, current_user: dict = Depends(auth.get_current_user)):
+async def get_upload_status(
+    filename: str, current_user: dict = Depends(auth.get_current_user)
+):
     """Check the processing status of an uploaded file."""
     if filename not in upload_status:
         raise HTTPException(status_code=404, detail="File processing not found.")

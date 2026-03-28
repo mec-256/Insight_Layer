@@ -1,0 +1,18 @@
+# Render.com Deployment Configuration
+buildCommand: pip install --no-cache-dir -r requirements.txt
+
+startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT --workers 1
+
+envVars:
+  - key: GROQ_API_KEY
+    sync: false
+  - key: SECRET_KEY
+    sync: false
+  - key: DATABASE_URL
+    sync: false
+  - key: SUPABASE_SERVICE_KEY
+    sync: false
+  - key: SUPABASE_URL
+    sync: false
+  - key: PYTHON_VERSION
+    value: "3.11"
