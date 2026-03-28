@@ -1,36 +1,48 @@
 import sys
 import os
 
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_postgres.vectorstores import PGVector
-from langchain_community.retrievers import BM25Retriever
-from langchain_core.documents import Document
-from sentence_transformers import CrossEncoder
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from src.config import DATABASE_URL, EMBEDDING_MODEL_NAME, RERANKER_MODEL_NAME, TOP_K
-
-cross_encoder = None
-
-
-def load_cross_encoder():
-    global cross_encoder
-    if cross_encoder is None:
-        print("Loading Cross-Encoder re-ranker...")
-        cross_encoder = CrossEncoder(RERANKER_MODEL_NAME)
-    return cross_encoder
-
+from src.config import DATABASE_URL, EMBEDDING_MODEL_NAME, TOP_K
 
 db_url = DATABASE_URL
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
+embeddings = None
+cross_encoder = None
+
+
+def get_embeddings():
+    global embeddings
+    if embeddings is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        print("Loading embedding model...")
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+    return embeddings
+
+
+def get_cross_encoder():
+    global cross_encoder
+    if cross_encoder is None:
+        try:
+            from sentence_transformers import CrossEncoder
+            from src.config import RERANKER_MODEL_NAME
+
+            print("Loading Cross-Encoder re-ranker...")
+            cross_encoder = CrossEncoder(RERANKER_MODEL_NAME)
+        except Exception as e:
+            print(f"WARNING: Could not load cross-encoder: {e}")
+            return None
+    return cross_encoder
+
 
 def load_db():
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+    from langchain_postgres.vectorstores import PGVector
+
     vector_store = PGVector(
         connection=db_url,
-        embeddings=embeddings,
+        embeddings=get_embeddings(),
         collection_name="insight_layer_docs",
         use_jsonb=True,
     )
@@ -38,65 +50,56 @@ def load_db():
 
 
 def load_bm25_retriever(db):
-    """BM25 is currently disabled in cloud mode to maintain statelessness and speed."""
+    """BM25 is disabled in cloud mode."""
     return None
 
 
 def retrieve_context(db, bm25_retriever, question, user_id: int, filename_filter=None):
-    """Performs Hybrid Search + Cross-Encoder Re-ranking"""
-    fetch_k = TOP_K * 5  # Fetch 15 candidates
+    fetch_k = TOP_K * 5
 
-    # 1. Vector Search
     filter_dict = {"user_id": user_id}
-
     if filename_filter:
-        # For PGVector, simple dictionary filters work best
-        # Note: source should match the value saved in metadata
         filter_dict["source"] = filename_filter
 
     vector_results = db.similarity_search(question, k=fetch_k, filter=filter_dict)
 
-    # 2. Keyword Search (BM25)
     keyword_results = []
     if bm25_retriever:
         try:
-            # Filter BM25 results by user_id
             k_res = [
                 doc
                 for doc in bm25_retriever.invoke(question)
                 if doc.metadata.get("user_id") == user_id
             ]
-
             if filename_filter:
                 keyword_results = [
-                    doc
-                    for doc in k_res
-                    if doc.metadata.get("source", "").endswith(filename_filter)
+                    d
+                    for d in k_res
+                    if d.metadata.get("source", "").endswith(filename_filter)
                 ]
             else:
                 keyword_results = k_res
         except Exception as e:
             print("BM25 error:", e)
 
-    # 3. Combine and Deduplicate
     combined = {}
     for doc in vector_results + keyword_results:
-        combined[doc.page_content] = doc  # deduplicate by content
+        combined[doc.page_content] = doc
 
     candidates = list(combined.values())
     if not candidates:
         return []
 
-    # 4. Cross-Encoder Re-ranking
-    # Create pairs of (Question, Document Content)
-    pairs = [[question, doc.page_content] for doc in candidates]
-    ce = load_cross_encoder()
-    scores = ce.predict(pairs)
+    # Try re-ranking, fall back to vector search results if fails
+    ce = get_cross_encoder()
+    if ce:
+        try:
+            pairs = [[question, doc.page_content] for doc in candidates]
+            scores = ce.predict(pairs)
+            scored = list(zip(scores, candidates))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [doc for _, doc in scored[:TOP_K]]
+        except Exception as e:
+            print(f"Re-ranking failed, using vector results: {e}")
 
-    # Sort candidates by score descending
-    scored_candidates = list(zip(scores, candidates))
-    scored_candidates.sort(key=lambda x: x[0], reverse=True)
-
-    # Return top K
-    results = [doc for score, doc in scored_candidates[:TOP_K]]
-    return results
+    return candidates[:TOP_K]

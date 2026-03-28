@@ -193,11 +193,10 @@ async def ask(
 
     print(f"Received question: {request.question[:100]}")
 
-    if db is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Vector database not configured. Please contact support.",
-        )
+    try:
+        current_db = get_db()
+    except HTTPException as e:
+        raise e
 
     question = request.question.strip()
     if not question:
@@ -215,8 +214,8 @@ async def ask(
         )
 
     results = retrieve_context(
-        db,
-        bm25,
+        current_db,
+        None,
         question,
         user_id=current_user["id"],
         filename_filter=request.filename,
@@ -279,16 +278,9 @@ def process_document(filename: str, user_id: int):
             chunk.metadata["user_id"] = user_id
 
         print(f"3/4. Creating Vector Embeddings & saving to Supabase (pgvector)...")
-        if db is None:
-            raise Exception(
-                "Database not initialized. Please check DATABASE_URL configuration."
-            )
-        db.add_documents(chunks)
+        current_db = get_db()
+        current_db.add_documents(chunks)
         print(f"     -> Successfully saved to cloud database.")
-
-        # Reload BM25 to include new documents
-        print(f"4/4. Reloading Keyword Search (BM25) index...")
-        bm25 = load_bm25_retriever(db)
 
         # Clean up temp file
         if os.path.exists(temp_path):
