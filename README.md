@@ -125,10 +125,10 @@ http://localhost:8000
 ## Screenshots
 
 ### Login Page
-![Login](screenshots/login.png)
+![Login](login.jpg)
 
 ### Chat Interface
-![Chat](screenshots/chat.png)
+![Chat](chat.jpg)
 
 > **Note:** To add screenshots, create a `screenshots/` folder in the repo and add your images.
 
