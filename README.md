@@ -122,15 +122,18 @@ http://localhost:8000
 | POST | `/upload` | Upload document |
 | POST | `/ask` | Ask a question |
 
-## Screenshots
+## Features Preview
 
 ### Login Page
-![Login](screenshots/login.png)
+- Modern dark theme with gradient buttons
+- JWT-based authentication  
+- Sign up / Sign in toggle
 
 ### Chat Interface
-![Chat](screenshots/chat.png)
-
-> **Note:** To add screenshots, create a `screenshots/` folder in the repo and add your images.
+- AI-powered Q&A with citations
+- Document upload with drag & drop
+- Suggestion chips for quick queries
+- Source references for each answer
 
 ## License
 
