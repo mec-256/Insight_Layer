@@ -138,4 +138,4 @@ MIT
 
 ## Author
 
-[Your Name] - [Your GitHub](https://github.com/mec-256)
+M.V.M Eswar Chandra - [Your GitHub](https://github.com/mec-256)
