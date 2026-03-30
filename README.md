@@ -124,8 +124,13 @@ http://localhost:8000
 
 ## Screenshots
 
-![Login](https://via.placeholder.com/600x400?text=Authentication+Screen)
-![Chat](https://via.placeholder.com/600x400?text=Chat+Interface)
+### Login Page
+![Login](screenshots/login.png)
+
+### Chat Interface
+![Chat](screenshots/chat.png)
+
+> **Note:** To add screenshots, create a `screenshots/` folder in the repo and add your images.
 
 ## License
 
